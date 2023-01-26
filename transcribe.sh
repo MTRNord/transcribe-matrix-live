@@ -90,20 +90,29 @@ do
 
     files=(./playlist/*.wav)
     next_file="${files[0]}"
-    echo "Working on \"${next_file}\" next"
-    FILENAME=$(basename ${next_file})
-    mv "${next_file}" ./${FILENAME}_orig
+    FILENAME=$(basename "${next_file}")
 
-    ffmpeg -y -i ./${FILENAME}_orig -acodec pcm_s16le -ac 1 -ar 16000 ./${FILENAME} >/dev/null  2>/dev/null
+    # Skip file if output exists
+    if [ -f "./output/${FILENAME}.vtt" ]; then
+        rm "${next_file}"
+        continue
+    fi
+    rm "./${FILENAME}_orig"
+    rm "./${FILENAME}"
+
+    echo "Working on \"${next_file}\" next"
+    mv "${next_file}" "./${FILENAME}_orig"
+
+    ffmpeg -y -i "./${FILENAME}_orig" -acodec pcm_s16le -ac 1 -ar 16000 "./${FILENAME}" >/dev/null  2>/dev/null
     rm ./${FILENAME}_orig
 
-    DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ./${FILENAME} 2>&1)
-    echo "start working on episode ${FILENAME}, duration $DURATION seconds"
+    DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "./${FILENAME}" 2>&1)
+    echo "start working on episode ${FILENAME}, duration ${DURATION} seconds"
 
 	START=`date +%s`
 	
 	echo "starting whisper"
-	nice -n 18 ./main -su -m models/ggml-$MODEL.bin -t $THREADS -l en -ovtt ./${FILENAME} >/dev/null  2>/dev/null
+	nice -n 18 ./main -su -m "models/ggml-${MODEL}.bin" -t $THREADS -l en -ovtt "./${FILENAME}" >/dev/null  2>/dev/null
 	
 	if [ $? -ne 0 ]
 		then
@@ -119,13 +128,13 @@ do
 	printf "%.2f" $(echo "$DURATION/$TOOK" | bc -l)
 	echo "x"
 
-    rm ./${FILENAME}
-	#rm ./${FILENAME}.vtt
-    mkdir -p ./output
-    mv ./${FILENAME}.vtt ./output/${FILENAME}.vtt
+    rm "./${FILENAME}"
+	#rm ""./${FILENAME}.vtt"
+    mkdir -p "./output"
+    mv "./${FILENAME}.vtt" "./output/${FILENAME}.vtt"
 	
 	if [ -f ~/.trancribe-stop ]; then
-		rm ~/.trancribe-stop
+		rm "~/.trancribe-stop"
 		echo "stopping hard"
 		exit
 	fi
