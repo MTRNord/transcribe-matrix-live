@@ -2,9 +2,9 @@
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-if [ -f ./fyyd.cfg ]
+if [ -f ./trancribe.cfg ]
 	then
-		source "./fyyd.cfg"
+		source "./trancribe.cfg"
 	else
 		echo "no config found. please run setup.sh first."
 		exit 0
@@ -23,10 +23,9 @@ function stop {
 function ctrl_c() {
 	
 	echo "------------------------------"
-	echo "STOPPING... notify fyyd"
+	echo "STOPPING..."
 	echo "bye bye"
 	echo "------------------------------"
-	curl -H "Authorization: Bearer $ATOKEN" "https://api.fyyd.de/0.2/transcribe/error/$ID" -d "error=0"
 	rm -f $PIDFILE
 	exit 
 }
@@ -62,79 +61,53 @@ pid() {
 pid
 
 echo "Starting engines! Let's transcribe some episodes"
-cd whisper.cpp
+pushd whisper.cpp
+
+#------------------------------------------------------------------------------------
+# get data for one episode to transcribe from matrix youtube
+#------------------------------------------------------------------------------------
+
+echo "getting data from youtube"
+mkdir -p ./playlist
+pushd ./playlist
+yt-dlp "https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr" -x --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s"
+popd
 
 while :
 do
-
-	#------------------------------------------------------------------------------------
-	# get data for one episode to transcribe from fyyd.de
-	#------------------------------------------------------------------------------------
-	
-	echo "getting data from fyyd"
-	DATA=`echo $(curl -s -H "Authorization: Bearer $ATOKEN"  "https://api.fyyd.de/0.2/transcribe/next")`
-	
-	ID=`echo $DATA |jq -r .data.episode_id`
-	URL=`echo $DATA |jq -r .data.enclosure_url`
-	TOKEN=`echo $DATA |jq -r .data.token`
-	LANG=`echo $DATA |jq -r .data.lang`
-	DURATION=`echo $DATA |jq -r .data.duration`
-	TITLE=`echo $DATA |jq -r .data.title`
-	
+    
 	# exit if nothing to do
 
-	if [ -z $ID  ]
+	if ! [ -n "$(find "./playlist/" -maxdepth 1 -type f 2>/dev/null)" ];
 		then
 			echo "nothing to transcribe. exit!"
 			exit 0;
 	fi
 	
 	#------------------------------------------------------------------------------------
-	# download episode 
-	#------------------------------------------------------------------------------------
-	
-	echo "starting download of episode $ID, \"$TITLE\", duration $DURATION seconds"
-
-	curl -s -L $URL > $TOKEN
-	if [ $? -ne 0 ]
-		then
-			echo "error downloading"
-			curl -H "Authorization: Bearer $ATOKEN" "https://api.fyyd.de/0.2/transcribe/error/$ID" -d "error=900"
-			continue
-		
-	fi
-	
-	
-	#------------------------------------------------------------------------------------
-	# convert whatever was donwloaded to 16kHz WAV 
-	#------------------------------------------------------------------------------------
-	
-	echo "converting to wav"
-
-	ffmpeg -y -i $TOKEN -acodec pcm_s16le -ac 1 -ar 16000 $TOKEN.wav >/dev/null  2>/dev/null
-	
-	if [ $? -eq 1 ]
-		then
-			echo "error converting to wav"
-			curl -H "Authorization: Bearer $ATOKEN" "https://api.fyyd.de/0.2/transcribe/error/$ID" -d "error=901"
-			continue
-	fi
-
-	rm $TOKEN
-	
-	#------------------------------------------------------------------------------------
 	# transcribe wav to vtt
 	#------------------------------------------------------------------------------------
+
+    files=(./playlist/*.wav)
+    next_file="${files[0]}"
+    echo "Working on \"${next_file}\" next"
+    FILENAME=$(basename ${next_file})
+    mv "${next_file}" ./${FILENAME}_orig
+
+    ffmpeg -y -i ./${FILENAME}_orig -acodec pcm_s16le -ac 1 -ar 16000 ./${FILENAME} >/dev/null  2>/dev/null
+    rm ./${FILENAME}_orig
+
+    DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ./${FILENAME} 2>&1)
+    echo "start working on episode ${FILENAME}, duration $DURATION seconds"
 
 	START=`date +%s`
 	
 	echo "starting whisper"
-	nice -n 18 ./main -su -m models/ggml-$MODEL.bin -t $THREADS -l $LANG -ovtt $TOKEN.wav >/dev/null  2>/dev/null
+	nice -n 18 ./main -su -m models/ggml-$MODEL.bin -t $THREADS -l en -ovtt ./${FILENAME} >/dev/null  2>/dev/null
 	
 	if [ $? -ne 0 ]
 		then
 			echo "error transcribing"
-			curl -H "Authorization: Bearer $ATOKEN" "https://api.fyyd.de/0.2/transcribe/error/$ID" -d "error=902"
 			continue
 		
 	fi
@@ -145,19 +118,14 @@ do
 	echo -n "Rate: "
 	printf "%.2f" $(echo "$DURATION/$TOOK" | bc -l)
 	echo "x"
-	
-		
-	#------------------------------------------------------------------------------------
-	# push transcript to fyyd
-	#------------------------------------------------------------------------------------
-	
-	curl -H "Authorization: Bearer $ATOKEN" "https://api.fyyd.de/0.2/transcribe/set/$ID" --data-binary @$TOKEN.wav.vtt
 
-	rm $TOKEN.wav
-	rm $TOKEN.wav.vtt
+    rm ./${FILENAME}
+	#rm ./${FILENAME}.vtt
+    mkdir -p ./output
+    mv ./${FILENAME}.vtt ./output/${FILENAME}.vtt
 	
-	if [ -f ~/.fyyd-stop ]; then
-		rm ~/.fyyd-stop
+	if [ -f ~/.trancribe-stop ]; then
+		rm ~/.trancribe-stop
 		echo "stopping hard"
 		exit
 	fi
@@ -166,5 +134,7 @@ do
 	sleep 2
 	
 done
+
+popd
 
 rm $PIDFILE

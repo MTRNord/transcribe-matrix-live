@@ -3,9 +3,9 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd $SCRIPT_DIR
 
-if [ -f ./fyyd.cfg ]
+if [ -f ./trancribe.cfg ]
 	then
-		source "./fyyd.cfg"
+		source "./trancribe.cfg"
 fi
 
 
@@ -25,15 +25,9 @@ then
     exit
 fi
 
-if ! command -v curl &> /dev/null
+if ! command -v yt-dlp &> /dev/null
 then
-	echo "Can't find curl. Please install."
-    exit
-fi
-
-if ! command -v jq &> /dev/null
-then
-	echo "Can't find jq. Please install."
+	echo "Can't find yt-dlp. Please install."
     exit
 fi
 
@@ -82,17 +76,6 @@ if [ "$THREADS" -ne 0 ]
 		THREAD_OPT=" -t $THREADS"
 fi
 
-if [ -z "$ACCESSTOKEN" ]
-	then
-		echo -n "please provide the accesstoken for fyyd (return to set later in fyyd.cfg): "
-		read token_input
-		if [ ! -z "$token_input" ]
-			then
-				echo "READ"
-				ACCESSTOKEN=$token_input
-		fi
-fi
-
 START=`date +%s`
 
 echo -e "\nstarting test. this might take some minutes, please wait...\n"
@@ -129,8 +112,7 @@ fi
 echo
 cd ..
 
-rm -f fyyd.cfg
-echo "THREADS=$THREADS" >> ./fyyd.cfg
-echo "ATOKEN=$ACCESSTOKEN" >> ./fyyd.cfg
-echo "PIDFILE=~/.fyyd-transcribe.pid" >> ./fyyd.cfg
-echo "MODEL=medium" >> ./fyyd.cfg
+rm -f trancribe.cfg
+echo "THREADS=$THREADS" >> ./trancribe.cfg
+echo "PIDFILE=~/.trancribe-transcribe.pid" >> ./trancribe.cfg
+echo "MODEL=medium" >> ./trancribe.cfg
