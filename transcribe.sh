@@ -70,7 +70,10 @@ pushd whisper.cpp
 echo "getting data from youtube"
 mkdir -p ./playlist
 pushd ./playlist
-yt-dlp "https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr" -x --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s"
+
+PLAYLIST_URL="https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr"
+
+yt-dlp "${PLAYLIST_URL}" -x --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s"
 popd
 
 while :
