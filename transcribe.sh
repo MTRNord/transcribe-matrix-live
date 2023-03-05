@@ -12,11 +12,6 @@ fi
 export LC_NUMERIC="en_US.UTF-8"
 
 trap ctrl_c INT
-trap stop EXIT
-
-function stop {
-	rm "$PIDFILE"
-}
 
 function ctrl_c() {
 	
@@ -24,36 +19,8 @@ function ctrl_c() {
 	echo "STOPPING..."
 	echo "bye bye"
 	echo "------------------------------"
-	rm -f "$PIDFILE"
 	exit 
 }
-
-pid() {
-	if [ -f "$PIDFILE" ]
-	then
-	  PID=$(cat "$PIDFILE")
-	  if ps -p "$PID" > /dev/null 2>&1;
-	  then
-		echo "Process already running"
-		exit 1
-	  else
-		## Process not found assume not running
-		if ! echo $$ > "$PIDFILE";
-		then
-		  echo "Could not create PID file"
-		  exit 1
-		fi
-	  fi
-	else
-	  if ! echo $$ > "$PIDFILE";
-	  then
-		echo "Could not create PID file"
-		exit 1
-	  fi
-	fi
-}
-
-pid
 
 echo "Starting engines! Let's transcribe some episodes"
 pushd whisper.cpp || exit
@@ -64,82 +31,79 @@ pushd whisper.cpp || exit
 
 echo "getting data from youtube"
 mkdir -p ./playlist
+touch ./playlist/downloaded.txt
+mkdir -p ./playlist_normalized
 pushd ./playlist || exit
 
-PLAYLIST_URL="https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr"
+#PLAYLIST_URL="https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr"
+#PLAYLIST_URL="https://www.youtube.com/watch?v=YB0vBc81DvI"
+PLAYLIST_URL="https://www.youtube.com/@Matrixdotorg"
 
-yt-dlp "${PLAYLIST_URL}" -x --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s"
+yt-dlp "${PLAYLIST_URL}" -x -f ba --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s" --concurrent-fragments 3 --download-archive ./downloaded.txt --live-from-start --extractor-args youtube:player_client=android
 popd || exit
 
-while :
+# exit if nothing to do
+
+if [ -z "$(find "./playlist/" -maxdepth 1 -type f 2>/dev/null)" ];
+	then
+		echo "nothing to transcribe. exit!"
+		exit 0;
+fi
+
+echo "cleanup"
+files_array=(./playlist/*.wav)
+for next_file in "${files_array[@]}"
 do
-    
-	# exit if nothing to do
-
-	if [ -z "$(find "./playlist/" -maxdepth 1 -type f 2>/dev/null)" ];
-		then
-			echo "nothing to transcribe. exit!"
-			exit 0;
-	fi
-	
-	#------------------------------------------------------------------------------------
-	# transcribe wav to vtt
-	#------------------------------------------------------------------------------------
-
-    files=(./playlist/*.wav)
-    next_file="${files[0]}"
-    FILENAME=$(basename "${next_file}")
+    FILENAME=$(basename "${next_file}" ".wav")
 
     # Skip file if output exists
-    if [ -f "./output/${FILENAME}.vtt" ]; then
+    if [ -f "./output/${FILENAME}.vtt" ] || [ -f "./output/${FILENAME}.txt" ]; then
         rm "${next_file}"
-        continue
     fi
-    rm "./${FILENAME}_orig"
-    rm "./${FILENAME}"
-
-    echo "Working on \"${next_file}\" next"
-    mv "${next_file}" "./${FILENAME}_orig"
-
-    ffmpeg -y -i "./${FILENAME}_orig" -acodec pcm_s16le -ac 1 -ar 16000 "./${FILENAME}" >/dev/null  2>/dev/null
-    rm "./${FILENAME}_orig"
-
-    DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "./${FILENAME}" 2>&1)
-    echo "start working on episode ${FILENAME}, duration ${DURATION} seconds"
-
-	START=$(date +%s)
-	
-	echo "starting whisper"
-	
-	if ! nice -n 18 ./main -su -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -ovtt "./${FILENAME}" >/dev/null  2>/dev/null;
-		then
-			echo "error transcribing"
-			continue
-	fi
-	
-	END=$(date +%s)
-	TOOK=$((END-START))
-
-	echo -n "Rate: "
-	printf "%.2f" "$(echo "$DURATION/$TOOK" | bc -l)"
-	echo "x"
-
-    rm "./${FILENAME}"
-	#rm ""./${FILENAME}.vtt"
-    mkdir -p "./output"
-    mv "./${FILENAME}.vtt" "./output/${FILENAME}.vtt"
-	
-	if [ -f ~/.trancribe-stop ]; then
-		rm "$HOME/.trancribe-stop"
-		echo "stopping hard"
-		exit
-	fi
-
-	echo "--------------------------------------------------------------"
-	sleep 2
-	
 done
 
-popd || exit
+echo "normalize"
+files_already_done=($(find . -wholename "./playlist_normalized/*.wav" -type f | tr '\n' ' ' | sed 's/playlist_normalized/playlist/g'))
+files=$(find . -wholename "./playlist/*.wav" -type f | tr '\n' ' ')
+for already_done_file in "${files_already_done[@]}"
+do
+    files=$(echo "${files}" | sed "s@${already_done_file}@@g")
+done
+files_out=$(echo "${files}" | sed 's/playlist/playlist_normalized/g')
 
-rm "$PIDFILE"
+[[ $files = *[!\ ]* ]] && ffmpeg-normalize $files -o $files_out -ar 16000
+
+## This logic is used to not process stuff twice
+#files_already_done=($(find . -wholename "./output/*.vtt" -type f | tr '\n' ' ' | sed 's/output/playlist_normalized/g' | sed 's/vtt/wav/g'))
+files_already_done=($(find . -wholename "./output/*.txt" -type f | tr '\n' ' ' | sed 's/output/playlist_normalized/g'| sed 's/txt/wav/g'))
+files=$(find . -wholename "./playlist_normalized/*.wav" -type f | tr '\n' ' ')
+for already_done_file in "${files_already_done[@]}"
+do
+    files=$(echo "${files}" | sed "s@${already_done_file}@@g")
+done
+out_files=$(echo "${files}" | sed 's/playlist_normalized/output/g' | sed 's/.wav//g')
+	
+echo "starting whisper"
+
+if [[ $files = *[!\ ]* ]]; then
+    #if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -ovtt -pc "${files}.wav"; #>/dev/null  2>/dev/null;
+    if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -otxt -pc $files -of $out_files; #>/dev/null  2>/dev/null;
+        then
+            echo "error transcribing"
+    fi
+
+    echo "cleanup"
+    mkdir -p "./output"
+    files_array=(./playlist_normalized/*.wav)
+    for next_file in "${files_array[@]}"
+    do
+        FILENAME=$(basename "${next_file}" ".wav")
+        #rm "./playlist/${FILENAME}.wav"
+        #rm "./playlist_normalized/${FILENAME}.wav"
+        #rm "./${FILENAME}.vtt"
+        mv "./${FILENAME}.wav.vtt" "./output/${FILENAME}.vtt"
+        mv "./${FILENAME}.wav.txt" "./output/${FILENAME}.txt"
+    done
+fi
+
+popd || exit
