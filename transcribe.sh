@@ -36,10 +36,10 @@ mkdir -p ./playlist_normalized
 pushd ./playlist || exit
 
 #PLAYLIST_URL="https://www.youtube.com/playlist?list=PLl5dnxRMP1hXBHqokHol6DTVIbnsf57Mr"
-#PLAYLIST_URL="https://www.youtube.com/watch?v=YB0vBc81DvI"
+#PLAYLIST_URL="https://www.youtube.com/watch?v=HlsMMzTFZ_A"
 PLAYLIST_URL="https://www.youtube.com/@Matrixdotorg"
 
-yt-dlp "${PLAYLIST_URL}" -x -f ba --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s" --concurrent-fragments 3 --download-archive ./downloaded.txt --live-from-start --extractor-args youtube:player_client=android
+python3 -m yt_dlp "${PLAYLIST_URL}" -x -f ba --audio-format wav --audio-quality 0 -o "%(id)s.%(ext)s" --concurrent-fragments 3 --download-archive ./downloaded.txt --live-from-start --extractor-args youtube:player_client=android
 popd || exit
 
 # exit if nothing to do
@@ -50,7 +50,6 @@ if [ -z "$(find "./playlist/" -maxdepth 1 -type f 2>/dev/null)" ];
 		exit 0;
 fi
 
-echo "cleanup"
 files_array=(./playlist/*.wav)
 for next_file in "${files_array[@]}"
 do
@@ -71,7 +70,7 @@ do
 done
 files_out=$(echo "${files}" | sed 's/playlist/playlist_normalized/g')
 
-[[ $files = *[!\ ]* ]] && ffmpeg-normalize $files -o $files_out -ar 16000
+[[ $files = *[!\ ]* ]] && python3 -m ffmpeg_normalize $files -p -o $files_out -ar 16000
 
 ## This logic is used to not process stuff twice
 #files_already_done=($(find . -wholename "./output/*.vtt" -type f | tr '\n' ' ' | sed 's/output/playlist_normalized/g' | sed 's/vtt/wav/g'))
@@ -87,21 +86,23 @@ echo "starting whisper"
 
 if [[ $files = *[!\ ]* ]]; then
     #if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -ovtt -pc "${files}.wav"; #>/dev/null  2>/dev/null;
-    if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -otxt -pc $files -of $out_files; #>/dev/null  2>/dev/null;
+    if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -otxt -pc --file $files --output-file $out_files -et 3.0; #>/dev/null  2>/dev/null;
         then
             echo "error transcribing"
     fi
 
     echo "cleanup"
-    mkdir -p "./output"
     files_array=(./playlist_normalized/*.wav)
     for next_file in "${files_array[@]}"
     do
         FILENAME=$(basename "${next_file}" ".wav")
-        #rm "./playlist/${FILENAME}.wav"
-        #rm "./playlist_normalized/${FILENAME}.wav"
+        # Removes some junk from hallucination
+        sed -i -e 's/ Subtitles by the Amara.org community//g' "./output/${FILENAME}.txt"
+
+        rm "./playlist/${FILENAME}.wav"
+        rm "./playlist_normalized/${FILENAME}.wav"
         #rm "./${FILENAME}.vtt"
-        mv "./${FILENAME}.wav.vtt" "./output/${FILENAME}.vtt"
+        #mv "./${FILENAME}.wav.vtt" "./output/${FILENAME}.vtt"
         mv "./${FILENAME}.wav.txt" "./output/${FILENAME}.txt"
     done
 fi
