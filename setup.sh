@@ -35,11 +35,11 @@ if [ ! -f "whisper.cpp/whisper.cpp" ]
 	then
 		echo "downloading whisper.cpp"
 		git clone https://github.com/ggerganov/whisper.cpp	
-		
+
 		echo "compiling whisper..."
 		cd whisper.cpp
-		make
-		
+		WHISPER_CLBLAST=1 make -j
+
 		echo "downloading the model"
 		./models/download-ggml-model.sh medium	
 	else
