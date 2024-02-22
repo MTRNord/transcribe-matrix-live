@@ -166,10 +166,19 @@ def normalize_audio_files(input_directory: str, output_directory: str) -> None:
     files: List[str] = [
         file for file in os.listdir(input_directory) if file.endswith(".wav")
     ]
-    files_in: List[str] = [f"{input_directory}/{file}" for file in files]
-    files_out: List[str] = [f"{output_directory}/{file}" for file in files]
 
-    normalizer = FFmpegNormalize(progress=True)
+    # Filter out files that are already in the output directory
+    existing_files = os.listdir(output_directory)
+    files_to_normalize = [file for file in files if file not in existing_files]
+
+    files_in: List[str] = [f"{input_directory}/{file}" for file in files_to_normalize]
+    files_out: List[str] = [f"{output_directory}/{file}" for file in files_to_normalize]
+
+    normalizer = FFmpegNormalize(
+        progress=True,
+        video_disable=True,
+        sample_rate=16000,
+    )
     for input_file, output_file in zip(files_in, files_out):
         normalizer.add_media_file(input_file, output_file)
     normalizer.run_normalization()
@@ -254,34 +263,41 @@ def transcribe_audio_files(files_directory: str, model: str, threads: int) -> No
 
     for file in files:
         input_file: str = f"{files_directory}/{file}"
-        output_file: str = f"output/{os.path.splitext(file)[0]}.txt"
+        base_filename: str = os.path.splitext(file)[0]
+        output_file: str = f"output/{base_filename}"
 
-        whisper_cmd: List[str] = [
-            "./main",
-            "-m",
-            f"models/ggml-{model}.bin",
-            "-t",
-            str(threads),
-            "-l",
-            "en",
-            "-otxt",
-            "-ovtt",
-            "-pc",
-            "--file",
-            input_file,
-            "--output-file",
-            output_file,
-            "-et",
-            "3.0",
-        ]
+        # Check if any of the output files already exist
+        txt_exists = os.path.exists(f"output/{base_filename}.txt")
+        srt_exists = os.path.exists(f"output/{base_filename}.srt")
+        vtt_exists = os.path.exists(f"output/{base_filename}.vtt")
+        if not (txt_exists and srt_exists and vtt_exists):
+            whisper_cmd: List[str] = [
+                "./main",
+                "-m",
+                f"models/ggml-{model}.bin",
+                "-t",
+                str(threads),
+                "-l",
+                "en",
+                "-otxt",
+                "-ovtt",
+                "-osrt",
+                "-pc",
+                "--file",
+                input_file,
+                "--output-file",
+                output_file,
+                "-et",
+                "3.0",
+            ]
 
-        whisper_process: subprocess.CompletedProcess = subprocess.run(
-            whisper_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        if whisper_process.returncode != 0:
-            logging.error("Error transcribing")
-        else:
-            logging.info("Transcription successful")
+            whisper_process: subprocess.CompletedProcess = subprocess.run(
+                whisper_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            if whisper_process.returncode != 0:
+                logging.error("Error transcribing")
+            else:
+                logging.info("Transcription successful")
 
 
 def backup_files(
