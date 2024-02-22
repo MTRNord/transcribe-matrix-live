@@ -2,3 +2,4 @@ whisper.cpp/
 trancribe.cfg
 test/
 testing/
+audio_lengths_histogram.png

@@ -14,12 +14,11 @@ export LC_NUMERIC="en_US.UTF-8"
 trap ctrl_c INT
 
 function ctrl_c() {
-	
 	echo "------------------------------"
 	echo "STOPPING..."
 	echo "bye bye"
 	echo "------------------------------"
-	exit 
+	exit
 }
 
 echo "Starting engines! Let's transcribe some episodes"
@@ -70,7 +69,7 @@ do
 done
 files_out=$(echo "${files}" | sed -e 's/playlist/playlist_normalized/g')
 
-[[ $files = *[!\ ]* ]] && python3 -m ffmpeg_normalize $files -p -o $files_out -ar 16000
+[[ $files = *[!\ ]* ]] && python3 -m ffmpeg_normalize ${files} -p -o ${files_out} -ar 16000
 
 ## This logic is used to not process stuff twice
 #files_already_done=($(find . -wholename "./output/*.vtt" -type f | tr '\n' ' ' | sed -e 's/output/playlist_normalized/g' | sed -e 's/vtt/wav/g'))
@@ -80,31 +79,37 @@ for already_done_file in "${files_already_done[@]}"
 do
     files=$(echo "${files}" | sed -e "s@${already_done_file}@@g")
 done
-out_files=$(echo "${files}" | sed -e 's/playlist_normalized/output/g' | sed -e 's/.wav//g')
-	
+out_files=($(echo "${files}" | sed -e 's/playlist_normalized/output/g' | sed -e 's/.wav//g'))
+
 echo "starting whisper"
 
 if [[ $files = *[!\ ]* ]]; then
-    #if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -ovtt -pc "${files}.wav"; #>/dev/null  2>/dev/null;
-    if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -otxt -ovtt -pc --file $files --output-file $out_files -et 3.0; #>/dev/null  2>/dev/null;
-        then
-            echo "error transcribing"
-    fi
+    array_files=(in cafiles)
+    for i in "${!array_files[@]}"; do
+	    echo "Starting with ${array_files[$1]}"
+        #if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -ovtt -pc "${files}.wav"; #>/dev/null  2>/dev/null;
+        if ! nice -n 18 ./main -m "models/ggml-${MODEL}.bin" -t "$THREADS" -l en -otxt -ovtt -pc --file "${array_files[$i]}" --output-file "${out_files[$i]}" -et 3.0; #>/dev/null  2>/dev/null;
+            then
+                echo "error transcribing"
+        fi
 
-    echo "cleanup"
-    files_array=(./playlist_normalized/*.wav)
-    for next_file in "${files_array[@]}"
-    do
-        FILENAME=$(basename "${next_file}" ".wav")
-        # Removes some junk from hallucination
-        sed -i -e 's/ Subtitles by the Amara.org community//g' "./output/${FILENAME}.txt"
-        sed -i -e 's/Subtitles by the Amara.org community//g' "./output/${FILENAME}.vtt"
+        echo "cleanup"
+        files_array=(./playlist_normalized/*.wav)
+        for next_file in "${files_array[@]}"
+        do
+            FILENAME=$(basename "${next_file}" ".wav")
+            # Removes some junk from hallucination
+            sed -i -e 's/ Subtitles by the Amara.org community//g' "./output/${FILENAME}.txt"
+            sed -i -e 's/Subtitles by the Amara.org community//g' "./output/${FILENAME}.vtt"
 
-        mv "./playlist/${FILENAME}.wav" "./playlist_bak/${FILENAME}.wav"
-        rm "./playlist_normalized/${FILENAME}.wav"
-        #rm "./${FILENAME}.vtt"
-        mv "./${FILENAME}.wav.vtt" "./output/${FILENAME}.vtt"
-        mv "./${FILENAME}.wav.txt" "./output/${FILENAME}.txt"
+	        mkdir ./playlist_bak
+	        mkdir ./playlist_normalized_bak
+            mv "./playlist/${FILENAME}.wav" "./playlist_bak/${FILENAME}.wav"
+            mv "./playlist_normalized/${FILENAME}.wav" "./playlist_normalized_bak/${FILENAME}.wav"
+            #rm "./${FILENAME}.vtt"
+            mv "./${FILENAME}.wav.vtt" "./output/${FILENAME}.vtt"
+            mv "./${FILENAME}.wav.txt" "./output/${FILENAME}.txt"
+        done
     done
 fi
 
