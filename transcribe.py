@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import tqdm
 import yt_dlp
 from ffmpeg_normalize import FFmpegNormalize
-from matplotlib import font_manager
 
 # Configure logging
 logging.basicConfig(
@@ -86,7 +85,7 @@ def setup_whisper() -> None:
             check=True,
         )
         logging.info("Compiling whisper...")
-        subprocess.run(["make", "-j", "WHISPER_CLBLAST=1"], cwd=whisper_dir, check=True)
+        subprocess.run(["WHISPER_CLBLAST=1", "make", "-j"], cwd=whisper_dir, check=True)
         logging.info("Downloading the model")
         subprocess.run(
             ["./models/download-ggml-model.sh", "medium"], cwd=whisper_dir, check=True
@@ -271,6 +270,7 @@ def transcribe_audio_files(files_directory: str, model: str, threads: int) -> No
         srt_exists = os.path.exists(f"output/{base_filename}.srt")
         vtt_exists = os.path.exists(f"output/{base_filename}.vtt")
         if not (txt_exists and srt_exists and vtt_exists):
+            logging.info(f"Transcribing {file}")
             whisper_cmd: List[str] = [
                 "./main",
                 "-m",
@@ -291,35 +291,26 @@ def transcribe_audio_files(files_directory: str, model: str, threads: int) -> No
                 "3.0",
             ]
 
-            whisper_process: subprocess.CompletedProcess = subprocess.run(
-                whisper_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
+            whisper_process: subprocess.CompletedProcess = subprocess.run(whisper_cmd)
             if whisper_process.returncode != 0:
                 logging.error("Error transcribing")
             else:
                 logging.info("Transcription successful")
+                backup_file(
+                    Path(input_file),
+                    Path(input_file.replace("playlist_normalized", "playlist")),
+                    Path("./backup"),
+                )
 
 
-def backup_files(
-    input_directory: str, normalized_directory: str, backup_directory: str
+def backup_file(
+    input_file: Path, normalized_file: Path, backup_directory: Path
 ) -> None:
-    # Backup input files
-    input_files: List[str] = [
-        file for file in os.listdir(input_directory) if file.endswith(".wav")
-    ]
-    for file in input_files:
-        input_file: str = f"{input_directory}/{file}"
-        shutil.move(input_file, f"{backup_directory}/input/{file}")
-        logging.info(f"Moved input file {file} to backup directory")
+    shutil.move(input_file, f"{backup_directory}/input/{input_file}")
+    logging.info(f"Moved input file {input_file} to backup directory")
 
-    # Backup normalized input files
-    normalized_files: List[str] = [
-        file for file in os.listdir(normalized_directory) if file.endswith(".wav")
-    ]
-    for file in normalized_files:
-        normalized_file: str = f"{normalized_directory}/{file}"
-        shutil.move(normalized_file, f"{backup_directory}/normalized/{file}")
-        logging.info(f"Moved normalized file {file} to backup directory")
+    shutil.move(normalized_file, f"{backup_directory}/normalized/{normalized_file}")
+    logging.info(f"Moved normalized file {normalized_file} to backup directory")
 
 
 def run() -> None:
@@ -341,6 +332,9 @@ def run() -> None:
     os.makedirs("./playlist", exist_ok=True)
     open("./playlist/downloaded.txt", "a").close()
     os.makedirs("./playlist_normalized", exist_ok=True)
+    os.makedirs("./backup", exist_ok=True)
+    os.makedirs("./backup/input", exist_ok=True)
+    os.makedirs("./backup/normalized", exist_ok=True)
 
     download_audio_files(playlist_url, "./playlist")
 
@@ -351,9 +345,6 @@ def run() -> None:
 
     # Transcribe audio files
     transcribe_audio_files("./playlist_normalized", model, threads)
-
-    # Cleanup
-    backup_files("./playlist", "./output", "./backup")
 
     logging.info("Transcription completed!")
 
