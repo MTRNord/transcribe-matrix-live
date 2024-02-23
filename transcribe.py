@@ -306,10 +306,12 @@ def transcribe_audio_files(files_directory: str, model: str, threads: int) -> No
 def backup_file(
     input_file: Path, normalized_file: Path, backup_directory: Path
 ) -> None:
-    shutil.move(input_file, f"{backup_directory}/input/{input_file}")
+    shutil.move(input_file, f"{backup_directory}/input/{input_file.name}")
     logging.info(f"Moved input file {input_file} to backup directory")
 
-    shutil.move(normalized_file, f"{backup_directory}/normalized/{normalized_file}")
+    shutil.move(
+        normalized_file, f"{backup_directory}/normalized/{normalized_file.name}"
+    )
     logging.info(f"Moved normalized file {normalized_file} to backup directory")
 
 
